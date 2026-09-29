@@ -1,0 +1,260 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage[hidelinks]{hyperref}
+\usepackage{natbib}
+\usepackage{graphicx}
+
+\title{Computing Through Tools Decorrelates Same-Model LLM Ensembles}
+\author{Reda Louriki\\\texttt{lourikireda06@gmail.com}}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Agents built on the same large language model (LLM) share weights, so repeated sampling or
+persona prompts tend to produce correlated errors, which limits the benefit of ensembling them.
+We study how to induce useful error diversity among same-model agents and when that diversity
+compensates for the individual accuracy it costs. Applying the ambiguity decomposition to the
+vote distribution of an agent ensemble gives an exchange-rate diagnostic that is exact for the
+Brier score of the vote distribution; whether it also predicts majority-vote outcomes is tested
+empirically. On recent competition mathematics problems from the MathArena stream, we compare
+five ways of diversifying five agents of the same model: repeated sampling, persona prompts,
+fixed method templates, planner-generated plans, and computational substrates, in which agents
+solve in plain text, executed Python, SymPy, brute-force search, or solve-then-check code.
+Pooled across <<NMODELS>> models and <<SA_N>> paired items, substrate ensembles improve
+majority-vote accuracy over self-consistency by <<SA_DIFF>> points (95\% CI <<SA_CI>>,
+Holm-adjusted $p=<<SA_PHOLM>>$, random effects <<SA_RE>>) without generating more tokens. A
+homogeneous control on one model shows that five copies of the best single tool perform as well
+as the mixed ensemble (<<HOMOG_ABS>>), and that five identical Python agents are much less
+error-correlated than five text agents. The gain therefore comes mainly from computing through
+tools rather than from mixing them, although a mixed ensemble reaches the accuracy of the best
+tool without requiring that tool to be identified in advance. The effect depends on capability.
+Tools raise per-agent accuracy on weak models and mainly decorrelate errors on stronger ones, and
+the gain decreases as base accuracy rises (<<CURVE>> points from the weakest to the strongest
+model). Planner-generated plans reduce individual accuracy without a significant ensemble
+benefit, and the diagnostic anticipates this out of sample.
+\end{abstract}
+
+\section{Introduction}
+The error of an averaged predictor equals the average member error minus a diversity term
+\citep{krogh1995neural,wood2023unified}. For LLMs the simplest ensemble is self-consistency,
+which samples one model several times and takes a majority vote \citep{wang2023selfconsistency}.
+Its members share weights and training data, and their errors are strongly correlated. A recent
+capability-controlled audit reports that common diversity metrics for LLM ensembles mostly track
+member weakness and that majority vote rarely beats the strongest member
+\citep{audit2026diversity}, and mixing different models can underperform aggregating a single
+strong one \citep{li2025rethinking}.
+
+The audit examines whether measured diversity predicts ensemble gains. We examine how useful
+diversity can be induced among agents of the same model, and when it pays for the individual
+accuracy it costs. Under a fixed budget of five agents per item, we compare stochastic sampling,
+surface-level prompt variation, procedural variation through method templates, model-generated
+variation through a planner, and substrate variation, where the same model computes through
+different tools. Combining chain-of-thought and program-based reasoning has been studied before.
+XoT switches between them on verification failure \citep{liu2023plan}, and collaborative
+verification combines them with learned verifiers \citep{liang2024improving}. Here we treat
+substrates as a source of ensemble diversity, quantify the trade-off between the diversity they
+add and the accuracy they cost, separate that diversity from tool augmentation with
+homogeneous-substrate controls, and compare substrates with the other mechanisms at equal budget.
+
+\paragraph{Contributions.}
+\begin{itemize}
+\item An application of ensemble ambiguity theory to LLM agent ensembles on the simplex of
+  answer-equivalence classes, giving an exchange-rate diagnostic that is exact for the Brier
+  score of the vote distribution and is tested empirically on majority vote
+  (Section~\ref{sec:framework}).
+\item A controlled comparison of five diversity mechanisms at a fixed agent budget on recent
+  competition problems, with Holm-corrected, model-stratified and random-effects analyses.
+\item Evidence across four models that tool-substrate ensembles improve over self-consistency
+  without generating more tokens, and homogeneous controls indicating that the gain comes mainly
+  from computing through tools rather than from heterogeneity itself.
+\item A capability-dependent mechanism (augmentation for weak models, decorrelation for stronger
+  ones) and a negative result for planner-generated plans.
+\end{itemize}
+
+\section{Related work}
+\paragraph{Sampling-based ensembles.} Self-consistency \citep{wang2023selfconsistency} and
+universal self-consistency \citep{chen2023universal} aggregate samples of one model.
+Mixture-of-Agents layers aggregators over several models \citep{wang2024moa}, while same-model
+aggregation can perform better \citep{li2025rethinking}.
+\paragraph{Prompt diversity.} DIV-SE elicits and ensembles diverse reasoning approaches
+\citep{naik2023diversity}, and Dipper ensembles diverse prompts \citep{dipper2024}. We test both
+fixed templates and planner-generated approaches while controlling for individual accuracy.
+\paragraph{Programs and tools.} Program-aided reasoning offloads computation to an interpreter
+\citep{gao2023pal,chen2022program}. XoT integrates chain-, program- and equation-of-thought with
+verification-based switching \citep{liu2023plan}, and collaborative verification combines CoT and
+PoT with verifiers \citep{liang2024improving}. We study such substrates as ensemble members and
+measure their contribution to diversity separately from their contribution to accuracy.
+\paragraph{Ensemble diversity theory.} Our accounting instantiates known decompositions
+\citep{krogh1995neural,wood2023unified}. Generalized ambiguity decompositions exist for
+classification \citep{jiang2017generalized}, and 0/1 loss has no equally clean additive form
+\citep{wood2023unified}, which is why our diagnostic is stated for the Brier score of the vote
+distribution. Pairwise diversity measures follow \citet{kuncheva2003measures}.
+
+\section{Framework}\label{sec:framework}
+Let $K$ agents answer an item with gold answer $y$, with answers mapped to equivalence classes
+as described in Section~\ref{sec:setup}. Let $p_i\in\{0,1\}^M$ be the one-hot class of agent $i$,
+$\bar p=\frac1K\sum_i p_i$ the vote distribution, and $e_y$ the gold class. Then
+\begin{equation}
+\underbrace{\tfrac1K\textstyle\sum_i\|p_i-e_y\|^2}_{\text{mean individual error}}
+=\underbrace{\|\bar p-e_y\|^2}_{\text{Brier error of the vote distribution}}
++\underbrace{\tfrac1K\textstyle\sum_i\|p_i-\bar p\|^2}_{\text{ambiguity}} .
+\end{equation}
+Since $\|p_i-e_y\|^2=2\cdot\mathbb 1[\text{agent } i\text{ wrong}]$, a diversity mechanism that
+lowers mean accuracy by $\delta$ and raises ambiguity by $\alpha$ improves the Brier error of the
+vote distribution if and only if $\alpha>2\delta$. We call $r=\alpha/(2\delta)$ the exchange
+rate, and say that a mechanism pays when $r>1$ or $\delta\le 0$.
+
+Majority vote is the argmax of $\bar p$, and 0/1 loss admits no equally clean additive
+decomposition \citep{wood2023unified}. Whether $r$ predicts majority-vote gains is therefore an
+empirical question, which we test out of sample in Section~\ref{sec:ablation}. We also report
+the mean pairwise error correlation $\bar\phi$ and the effective number of independent agents
+$K/(1+(K-1)\bar\phi)$.
+
+\section{Experimental setup}\label{sec:setup}
+\paragraph{Data.} We use final-answer problems from AIME 2025 and 2026, HMMT (February 2025,
+November 2025, February 2026), SMT 2025, CMIMC 2025 and BRUMO 2025, taken from the MathArena
+evaluation stream \citep{balunovic2025matharena}. APEX is excluded because it is close to
+unsolvable by design. All analyses use one fixed subset of 90 items. Contamination risk varies
+by model and competition date, and gemma-4 was released after part of the 2025 competitions.
+Older benchmarks were rejected after a probe: MATH levels 4 and 5 are at ceiling for these
+models (94 to 100\%), and AIME 1983 to 2024 shows signs of memorisation (90\% accuracy with about
+1.7k output tokens).
+\paragraph{Answer equivalence.} Final answers are read from the last \verb|\boxed{}| for text
+agents and from the last \verb|ANSWER:| line printed by the program for code agents. Two answers
+belong to the same class if their normalised strings coincide (after removing \verb|\left| and
+\verb|\right|, \verb|\text{}|, degree signs, spaces and trailing periods, and mapping \verb|*I|
+to \verb|i|), if \texttt{math-verify} finds them symbolically equivalent in either direction
+after LaTeX and expression extraction, or, for plain program output such as \verb|sqrt(12)|,
+\verb|pi| or tuples, if the answer converted to LaTeX with SymPy (unevaluated \verb|sympify|)
+is found equivalent. Missing or unparseable answers abstain and do not vote. Classes are built
+jointly over all answers to an item, including the gold answer, so every system and aggregator
+votes over the same labels. All code is released.
+\paragraph{Models.} We use gemma-4-31B-it (non-reasoning, NVIDIA NIM), gemini-3.5-flash-lite and
+gemini-3.1-flash-lite (Google AI Studio), and gpt-oss-20b (reasoning, served by NVIDIA NIM and by
+Groq on disjoint items, so the A and S agents of any item share a provider). Temperature is 0.7
+and the output budget is 16k tokens.
+\paragraph{Arms.} Each arm has five agents of the same model. \textbf{A} uses an identical
+neutral prompt. \textbf{C} uses five fixed method templates. In \textbf{G}, a planner writes five
+problem-specific plans and each solver follows one of them. \textbf{S} uses five substrates:
+text chain-of-thought, executed Python, SymPy formalisation, brute-force or numeric search, and
+solve-then-check. Code runs in a network-isolated sandbox with one repair round. \textbf{X} adds
+five more neutral samples, so that A and X together form ten-sample self-consistency.
+\textbf{HB} and \textbf{HP} are homogeneous controls with five brute-force or five Python agents.
+\paragraph{Aggregation and statistics.} We use majority vote over equivalence classes, with
+ties counted at their expected value, cross-fitted weighted votes, and a verifier in which the
+base model must pick one of the candidates. Within a model we use a paired item-level bootstrap.
+Pooled contrasts use a model-stratified sign-flip permutation test, a stratified bootstrap and
+DerSimonian and Laird random effects, with Holm correction over the planned family
+$\{S{-}A, C{-}A, G{-}A\}$. Choices made after seeing a model's data, such as removing SymPy
+(``S4''), are validated only on the other models. Each item has a single sampled ensemble per
+arm, so the item-level bootstrap already includes sampling noise; Section~\ref{sec:stability}
+reports a run-to-run replicate.
+
+\section{Results}\label{sec:results}
+\subsection{Pilot on GSM8K}
+On GSM8K with llama-3.2-11B (100 items), a blind judge recovered the assigned method in 79\% of
+template-arm solutions, against 17\% by chance. Templates halved the error correlation
+($\bar\phi$ from 0.49 to 0.26) but cost 9.6 points of individual accuracy, an exchange rate of
+0.66, and majority-vote accuracy did not change. Persona prompts lowered accuracy without a
+significant reduction in error correlation.
+
+\subsection{Main comparison on gemma-4-31B}
+\begin{table}[h]\centering\small
+\begin{tabular}{lcccccc}\toprule
+Arm & Indiv.\ acc & Majority & Verifier & Oracle & $\bar\phi$ & Eff.\ $N$\\\midrule
+A self-consistency & 0.800 & 0.867 & 0.889 & 0.922 & 0.575 & 1.52\\
+C fixed templates  & 0.793 & 0.867 & 0.900 & 0.956 & 0.443 & 1.80\\
+G generated plans  & 0.716 & 0.833 & 0.822 & 0.900 & 0.459 & 1.76\\
+S substrates       & \textbf{0.816} & \textbf{0.900} & \textbf{0.922} & \textbf{0.967} & \textbf{0.392} & \textbf{1.95}\\\bottomrule
+\end{tabular}
+\caption{gemma-4-31B, five agents per arm, the same 90 items in every arm.}
+\end{table}
+Relative to A, the exchange rate is 3.1 for C and 0.56 for G, and S loses no individual
+accuracy.
+
+\subsection{Homogeneous-substrate controls}
+<<HOMOG>>
+
+\subsection{Pooled analysis across models}
+<<POOLED_TABLE>>
+<<TOKENS_TABLE>>
+
+\subsection{Augmentation and decorrelation}
+<<MECH_TEXT>>
+
+\subsection{Compute-matched comparison and total cost}
+\begin{table}[h]\centering\small
+\begin{tabular}{lcc}\toprule
+System (gemma-4-31B) & Accuracy & Output tokens per problem\\\midrule
+A$\times$5, majority vote & 0.871 & 8.1k\\
+A$\times$10 with verifier (compute-matched) & 0.894 & 16.9k\\
+S$\times$5 with verifier & \textbf{0.918} & 10.4k\\\bottomrule
+\end{tabular}
+\caption{Verifier systems on the 85 items for which all verifiers are available.}
+\end{table}
+<<COMPUTE>>
+
+\subsection{Run-to-run stability}\label{sec:stability}
+<<REPL>>
+
+\subsection{Ablation and the exchange-rate diagnostic}\label{sec:ablation}
+Leaving one substrate out on gemma shows the largest contributions from brute-force search (3.3
+points lost when removed) and executed Python (2.2 points). Removing SymPy looked beneficial in
+sample (+1.1 points) but is neutral on held-out models (<<S4OOS>>), so we keep the five-substrate
+arm. When the exchange rate is estimated on one half of the items and checked on the other, it
+predicts the failure of generated plans in 99\% of random splits for the Brier score, for which
+it is exact, and in 84\% of splits for majority vote. For small gains (below about 3 points with
+45 items) its predictions are at chance level. The diagnostic is therefore informative for
+majority vote, although less reliable than for the quantity from which it is derived.
+
+\subsection{Comparison with the MathArena leaderboard}
+MathArena reports single-attempt accuracy of single models, whereas our systems are multi-agent
+ensembles at inference time, so the two are not directly comparable and we report output tokens
+alongside. On the 85 problems shared by all systems, gemma-4-31B with substrate agents and a
+verifier reaches 0.918 with 10.4k output tokens per problem. On the problems they share with
+us, o3 (high) scores 0.934 with 9.6k tokens and GPT-OSS-120B (high) scores 0.922. Frontier models
+remain 5 to 7 points higher.
+
+\section{Limitations}
+Sample sizes are modest, with at most 90 items per model, and gpt-oss-20b is only partially
+covered, so its results are supporting evidence. The study covers a single domain, competition
+mathematics, and uses free-tier APIs only. Contamination risk varies by model and competition
+date. The homogeneous controls were run on one model, so we cannot tell whether heterogeneity
+helps on weaker models, where per-tool accuracies differ more. Cost accounting covers LLM input
+and output tokens and sandbox time, and includes hidden reasoning tokens only to the extent that
+each provider reports them.
+
+\section{Conclusion}
+Letting agents of the same model compute through tools is a practical way to induce useful error
+diversity. Tools help weak models by raising per-agent accuracy and help stronger models by
+decorrelating their errors, without increasing the number of generated tokens. On the model where
+we could test it, mixing different tools did not improve on the best single tool replicated five
+times; its advantage is that it reaches that level without knowing which tool is best, and the
+best tool differs across models. Planner-generated diversity did not help in our experiments. An
+exchange-rate diagnostic derived from the ambiguity decomposition identifies when induced
+diversity fails to compensate for its accuracy cost.
+
+\bibliographystyle{plainnat}
+\begin{thebibliography}{99}
+\bibitem[Krogh and Vedelsby(1994)]{krogh1995neural} A.~Krogh and J.~Vedelsby. Neural network ensembles, cross validation, and active learning. In \emph{Advances in Neural Information Processing Systems 7 (NIPS 1994)}, 1995.
+\bibitem[Wood et~al.(2023)]{wood2023unified} D.~Wood, T.~Mu, A.~Webb, H.~Reeve, M.~Luj\'an, and G.~Brown. A unified theory of diversity in ensemble learning. \emph{JMLR}, 24(359), 2023.
+\bibitem[Jiang et~al.(2017)]{jiang2017generalized} Z.~Jiang, H.~Liu, B.~Fu, and Z.~Wu. Generalized ambiguity decompositions for classification with applications in active learning and unsupervised ensemble pruning. \emph{AAAI}, 2017.
+\bibitem[Kuncheva and Whitaker(2003)]{kuncheva2003measures} L.~I.~Kuncheva and C.~J.~Whitaker. Measures of diversity in classifier ensembles and their relationship with the ensemble accuracy. \emph{Machine Learning}, 51(2):181-207, 2003.
+\bibitem[Wang et~al.(2023)]{wang2023selfconsistency} X.~Wang, J.~Wei, D.~Schuurmans, Q.~Le, E.~Chi, S.~Narang, A.~Chowdhery, and D.~Zhou. Self-consistency improves chain of thought reasoning in language models. \emph{ICLR}, 2023.
+\bibitem[Chen et~al.(2023)]{chen2023universal} X.~Chen et~al. Universal self-consistency for large language model generation. arXiv:2311.17311, 2023.
+\bibitem[Wang et~al.(2025)]{wang2024moa} J.~Wang, J.~Wang, B.~Athiwaratkun, C.~Zhang, and J.~Zou. Mixture-of-Agents enhances large language model capabilities. \emph{ICLR}, 2025.
+\bibitem[Li et~al.(2025)]{li2025rethinking} W.~Li et~al. Rethinking Mixture-of-Agents: is mixing different large language models beneficial? arXiv:2502.00674, 2025.
+\bibitem[Naik et~al.(2023)]{naik2023diversity} R.~Naik, V.~Chandrasekaran, M.~Yuksekgonul, H.~Palangi, and B.~Nushi. Diversity of thought improves reasoning abilities of LLMs. arXiv:2310.07088, 2023.
+\bibitem[Dipper(2024)]{dipper2024} Dipper: Diversity in prompts for producing large language model ensembles in reasoning tasks. arXiv:2412.15238, 2024.
+\bibitem[Gao et~al.(2023)]{gao2023pal} L.~Gao, A.~Madaan, S.~Zhou, U.~Alon, P.~Liu, Y.~Yang, J.~Callan, and G.~Neubig. PAL: Program-aided language models. \emph{ICML}, 2023.
+\bibitem[Chen et~al.(2022)]{chen2022program} W.~Chen, X.~Ma, X.~Wang, and W.~W.~Cohen. Program of thoughts prompting: disentangling computation from reasoning for numerical reasoning tasks. \emph{TMLR}, 2023. arXiv:2211.12588.
+\bibitem[Liu et~al.(2023)]{liu2023plan} T.~Liu, Q.~Guo, Y.~Yang, X.~Hu, Y.~Zhang, X.~Qiu, and Z.~Zhang. Plan, verify and switch: integrated reasoning with diverse X-of-thoughts. \emph{EMNLP}, 2023.
+\bibitem[Liang et~al.(2024)]{liang2024improving} Z.~Liang et~al. Improving LLM reasoning through scaling inference computation with collaborative verification. arXiv:2410.05318, 2024.
+\bibitem[Audit(2026)]{audit2026diversity} Are diversity metrics measuring diversity? A capability-controlled audit of majority-vote gain in LLM ensembles. arXiv:2607.20768, 2026.
+\bibitem[Balunovi\'c et~al.(2025)]{balunovic2025matharena} M.~Balunovi\'c, J.~Dekoninck, I.~Petrov, N.~Jovanovi\'c, and M.~Vechev. MathArena: evaluating LLMs on uncontaminated math competitions. arXiv:2505.23281, 2025.
+\end{thebibliography}
+\end{document}
